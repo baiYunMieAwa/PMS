@@ -95,6 +95,9 @@ def onPacketRecv(packet: Packet):
         # 发送加入游戏数据包
         mc_join_game(0, 1, world=0, seed=72623859790382856, worldType="flat", vd=8)
 
+        # 发送玩家加入游戏消息
+        mc_print(f"{packet[0]} 加入了游戏", "yellow")
+
         # 发送玩家位置和视角数据包
         mc_set_location(0, 64, 0)
 
@@ -128,9 +131,8 @@ while True:
                 np = Packet(0x21)
                 np.addField(Long(random.randint(0, 10**10)))
                 session.sendPacket(np)
-            elif state == 0:
-                break
-            time.sleep(1)
+                print("发送 心跳包")
+                time.sleep(10)
     except:
         pass
 
