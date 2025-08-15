@@ -1,0 +1,2 @@
+def parsePacket(packet):
+    bytearray()
