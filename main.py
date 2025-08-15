@@ -2,10 +2,29 @@ import random
 import time
 from protocol import *
 from socket import socket as Socket
+from _thread import start_new_thread
 
 
 # 0: 握手, 1: 查询, 2: 登录, 3: 游玩
 state = 0
+player_name = ""
+
+
+# noinspection PyBroadException
+def heartbeat_packet(session):
+    global state
+    try:
+        while True:
+            if state == 3:
+                np = Packet(0x21)
+                np.addField(Long(random.randint(0, 10**10)))
+                session.sendPacket(np)
+                # print("发送 心跳包")
+                time.sleep(10)
+    except:
+        print("切换 握手阶段")
+        state = 0
+        return
 
 
 def mc_join_game(EID, gameMode=0, world=0, seed=0, worldType="default", vd=8):
@@ -22,10 +41,12 @@ def mc_join_game(EID, gameMode=0, world=0, seed=0, worldType="default", vd=8):
     session.sendPacket(np)
 
 
-def mc_print(text, color="white"):
-    chat = f'{{"extra":[{{"text":"{text}", "color":"{color}"}}],"text":""}}'
-    # 官方: \x0f0{"extra":[{"text":"test awa"}],"text":""}\x01
-    # 我:  $\x0f{"extra":[{"text":"test awa"}],"text":""}\x01
+def mc_add_player():
+    pass
+
+
+def mc_print(text):
+    chat = f'{{"extra":{str(convert_mc_format(text)).replace("'", '"')},"text":""}}'
     np = Packet(0x0f)
     np.addField(MCString(chat))
     np.addField(Byte(1))
@@ -55,6 +76,7 @@ def mc_set_location(x, y, z, yaw=0.0, pitch=0.0):
 
 def onPacketRecv(packet: Packet):
     global state
+    global player_name
     if state == 0:
         print("收到 握手包")
         packet = [i.get() for i in packet.parse([VarInt, MCString, UnsignedShort, VarInt])]
@@ -82,11 +104,12 @@ def onPacketRecv(packet: Packet):
     elif state == 2:
         packet = [i.get() for i in packet.parse([MCString])]
         print(f"收到 玩家名({packet[0]})")
+        player_name = packet[0]
 
         np = Packet(2)
         uuid = "530fa97a-357f-3c19-94d3-0c5c65c18fe8"
         np.addField(MCString(uuid))
-        np.addField(MCString(packet[0]))
+        np.addField(MCString(player_name))
         session.sendPacket(np)
 
         print("切换 游玩状态")
@@ -96,18 +119,21 @@ def onPacketRecv(packet: Packet):
         mc_join_game(0, 1, world=0, seed=72623859790382856, worldType="flat", vd=8)
 
         # 发送玩家加入游戏消息
-        mc_print(f"{packet[0]} 加入了游戏", "yellow")
+        mc_print(f"&e{player_name} 加入了游戏")
 
         # 发送玩家位置和视角数据包
         mc_set_location(0, 64, 0)
 
     elif state == 3:
-        print(f"收到 {packet.data}")
         if packet.data[1] == 0x03:
             chat = packet.parse([MCString])[0].get()
             print(f"收到 客户端聊天消息({chat})")
             if chat[0] == "/":
-                mc_print("命令test通过")
+                command = chat[1:].split(" ")
+                if command[0] == "say":
+                    mc_print(f"[{player_name}] {" ".join(command[1:])}")
+                else:
+                    mc_print(f"命令: {command}")
             else:
                 mc_print(chat)
 
@@ -119,21 +145,11 @@ s.bind((host, port))
 s.listen(5)                 # 等待客户端连接
 
 while True:
-    print("切换 握手阶段")
-    state = 0
+
     c, addr = s.accept()     # 建立客户端连接
     session = Session(c, onPacketRecv)
     print(f'连接地址: {addr}')
     # noinspection PyBroadException
-    try:
-        while True:
-            if state == 3:
-                np = Packet(0x21)
-                np.addField(Long(random.randint(0, 10**10)))
-                session.sendPacket(np)
-                print("发送 心跳包")
-                time.sleep(10)
-    except:
-        pass
+    start_new_thread(heartbeat_packet, (session,))
 
 # \x18&\x00\x01\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\x14\x04flat\x08\x00\x00

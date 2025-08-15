@@ -28,7 +28,6 @@ class Session:
         self.receiveThread.start()
 
     def sendPacket(self, packet: Packet):
-        print(f"发送 {packet.data}")
         self.socket.sendall(packet.data)
 
     class ReceiveThread(Thread):
@@ -53,5 +52,8 @@ class Session:
                         self.onClose(data)
                         return
                     data += readBuff
-                self.onPacketRecv(packet)
+                try:
+                    self.onPacketRecv(packet)
+                except Exception as e:
+                    print(f"Error: {e}")
                 data = data[len(packet.data):]
