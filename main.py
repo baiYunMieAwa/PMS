@@ -1,56 +1,25 @@
 import random
 import time
-from io import BytesIO
 from protocol import *
 from socket import socket as Socket
-import struct
-import nbtlib
-from nbtlib import serialize_tag
 
 
 # 0: 握手, 1: 查询, 2: 登录, 3: 游玩
 state = 0
 
 
-class Bool(MCField):
-    def __init__(self, tf):
-        if tf:
-            self.sendData = bytearray([1])
-        else:
-            self.sendData = bytearray([0])
-
-    @property
-    def data(self):
-        return self.sendData
-
-
-class Any(MCField):
-    def __init__(self, a):
-        self.sendData = a
-
-    @property
-    def data(self):
-        return self.sendData
-
-
-def Int(a):
-    return Any(bytearray(struct.pack(">i", a)))
-
-
-def Long(a):
-    return Any(bytearray(struct.pack(">q", a)))
-
-
-def Double(a):
-    return Any(bytearray(struct.pack(">d", a)))
-
-
-def Float(a):
-    return Any(bytearray(struct.pack(">f", a)))
-
-
-def encode_varint(a):
-    return VarInt(a).data
+def mc_join_game(EID, gameMode=0, world=0, seed=0, worldType="default", vd=8):
+    np = Packet(0x26)
+    np.addField(Int(EID))  # 玩家的实体 ID （EID）
+    np.addField(UnsignedByte(gameMode))  # 0: 生存, 1: 创造, 2: 冒险, 3: 旁观者. 第3位 (0x8) 是极限模式标志
+    np.addField(Int(world))  # -1: 下界，0: 主世界，1: 末地. 请注意, 这不是 VarInt, 而是一个常规 int
+    np.addField(Long(seed))  # 世界种子的 SHA-256 哈希的前 8 个字节
+    np.addField(UnsignedByte(20))  # 最大玩家数, 曾经被客户端用来绘制玩家列表，但现在被忽略了
+    np.addField(MCString(worldType))  # 世界类型: default, flat, largeBiomes, amplified, customized, buffet, default_1_1
+    np.addField(VarInt(vd))  # 视距
+    np.addField(Bool(True))  # 是否减少调试信息
+    np.addField(Bool(True))  # 是否启用重生屏幕
+    session.sendPacket(np)
 
 
 def mc_print(text, color="white"):
@@ -62,6 +31,26 @@ def mc_print(text, color="white"):
     np.addField(Byte(1))
     session.sendPacket(np)
     print(f"发送 聊天消息({chat})")
+
+
+def mc_set_location(x, y, z, yaw=0.0, pitch=0.0):
+    pos_packet = Packet(0x36)
+    pos_packet.addField(Double(float(x)))  # X
+    pos_packet.addField(Double(float(y)))  # Y (安全高度)
+    pos_packet.addField(Double(float(z)))  # Z
+    pos_packet.addField(Float(float(yaw)))  # Yaw
+    pos_packet.addField(Float(float(pitch)))  # Pitch
+    pos_packet.addField(Byte(0))  # 标志
+    # 这(上方)是一个位掩码, X/Y/Z/Y_ROT/X_ROT. 如果设置了X, x值是相对的而不是绝对的(偏移值)
+    """
+    X 0x01
+    Y 0x02
+    Z 0x04
+    Y_ROT 0x08
+    X_ROT 0x10
+    """
+    pos_packet.addField(VarInt(random.randint(-10000, 10000)))  # 传送ID
+    session.sendPacket(pos_packet)
 
 
 def onPacketRecv(packet: Packet):
@@ -76,6 +65,7 @@ def onPacketRecv(packet: Packet):
         elif packet[-1] == 2:
             state = 2
             print("切换 登录阶段")
+
     elif state == 1:
         if packet.data == bytearray(b'\x01\x00'):
             print("发送 服务器信息")
@@ -88,6 +78,7 @@ def onPacketRecv(packet: Packet):
             session.sendPacket(packet)
             state = 0
             print("切换 握手阶段")
+
     elif state == 2:
         packet = [i.get() for i in packet.parse([MCString])]
         print(f"收到 玩家名({packet[0]})")
@@ -101,32 +92,12 @@ def onPacketRecv(packet: Packet):
         print("切换 游玩状态")
         state = 3
 
-        np = Packet(0x26)
-        np.addField(Int(0))                  # 玩家的实体 ID （EID）
-        np.addField(UnsignedByte(1))            # 0: 生存, 1: 创造, 2: 冒险, 3: 旁观者. 第3位 (0x8) 是极限模式标志
-        np.addField(Int(0))                     # -1: 下界，0: 主世界，1: 末地. 请注意, 这不是 VarInt, 而是一个常规 int
-        np.addField(Long(72623859790382856))    # 世界种子的 SHA-256 哈希的前 8 个字节
-        np.addField(UnsignedByte(20))           # 最大玩家数, 曾经被客户端用来绘制玩家列表，但现在被忽略了
-        np.addField(MCString("flat"))           # 世界类型: default, flat, largeBiomes, amplified, customized, buffet, default_1_1
-        np.addField(VarInt(8))                  # 视距
-        np.addField(Bool(True))                 # 是否减少调试信息
-        np.addField(Bool(True))                 # 是否启用重生屏幕
-        session.sendPacket(np)
-
-        # 发送空区块
-        # chunk_packet = create_empty_chunk_packet(0, 0)
-        # session.sendPacket(chunk_packet)
+        # 发送加入游戏数据包
+        mc_join_game(0, 1, world=0, seed=72623859790382856, worldType="flat", vd=8)
 
         # 发送玩家位置和视角数据包
-        pos_packet = Packet(0x36)
-        pos_packet.addField(Double(0.0))  # X
-        pos_packet.addField(Double(64.0))  # Y (安全高度)
-        pos_packet.addField(Double(0.0))  # Z
-        pos_packet.addField(Float(0.0))  # Yaw
-        pos_packet.addField(Float(0.0))  # Pitch
-        pos_packet.addField(Byte(0))  # 标志
-        pos_packet.addField(VarInt(0))  # 传送ID
-        session.sendPacket(pos_packet)
+        mc_set_location(0, 64, 0)
+
     elif state == 3:
         print(f"收到 {packet.data}")
         if packet.data[1] == 0x03:

@@ -11,3 +11,4 @@ from protocol.packet import Packet
 from protocol.varNum import VarInt, VarLong
 from protocol.mcInt import Byte, UnsignedByte, Short, UnsignedShort, Integer, UnsignedInteger, Long, UnsignedLong
 from protocol.mcField import MCField
+from protocol.otherThings import *
